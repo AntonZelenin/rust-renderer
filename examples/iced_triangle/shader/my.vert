@@ -1,10 +1,10 @@
 #version 450
 
 void main() {
-    const vec4 vertices[3] = vec4[3](
-        vec4( 0.25, -0.25, 0.5, 1.0),
-        vec4(-0.25, -0.25, 0.5, 1.0),
-        vec4( -0.4, 0.4, 0.5, 1.0)
+    const vec2 vertices[3] = vec2[3](
+        vec2( 0.25, -0.25),
+        vec2(-0.25, -0.25),
+        vec2( -0.4, 0.4)
     );
-    gl_Position = vertices[gl_VertexIndex];
+    gl_Position = vec4(vertices[gl_VertexIndex], 0.0, 1.0);
 }

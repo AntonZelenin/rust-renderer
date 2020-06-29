@@ -51,8 +51,8 @@ impl Scene {
 }
 
 fn build_pipeline(device: &wgpu::Device) -> (wgpu::RenderPipeline, wgpu::BindGroup) {
-    compile_my_shader("examples/triangle/shader/my.frag", "examples/triangle/shader/my_frag.spv", shaderc::ShaderKind::Fragment);
-    compile_my_shader("examples/triangle/shader/my.vert", "examples/triangle/shader/my_vert.spv", shaderc::ShaderKind::Vertex);
+    compile_my_shader("examples/iced_triangle/shader/my.frag", "examples/iced_triangle/shader/my_frag.spv", shaderc::ShaderKind::Fragment);
+    compile_my_shader("examples/iced_triangle/shader/my.vert", "examples/iced_triangle/shader/my_vert.spv", shaderc::ShaderKind::Vertex);
     // let vs = include_bytes!("shader/vert.spv");
     // let fs = include_bytes!("shader/frag.spv");
     let fs = include_bytes!("shader/my_frag.spv");
