@@ -51,8 +51,8 @@ impl Scene {
 }
 
 fn build_pipeline(device: &wgpu::Device) -> (wgpu::RenderPipeline, wgpu::BindGroup) {
-    compile_my_shader("src/shader/my.frag", "src/shader/my_frag.spv", shaderc::ShaderKind::Fragment);
-    compile_my_shader("src/shader/my.vert", "src/shader/my_vert.spv", shaderc::ShaderKind::Vertex);
+    compile_my_shader("examples/triangle/shader/my.frag", "examples/triangle/shader/my_frag.spv", shaderc::ShaderKind::Fragment);
+    compile_my_shader("examples/triangle/shader/my.vert", "examples/triangle/shader/my_vert.spv", shaderc::ShaderKind::Vertex);
     // let vs = include_bytes!("shader/vert.spv");
     // let fs = include_bytes!("shader/frag.spv");
     let fs = include_bytes!("shader/my_frag.spv");
@@ -65,11 +65,15 @@ fn build_pipeline(device: &wgpu::Device) -> (wgpu::RenderPipeline, wgpu::BindGro
         device.create_shader_module(&wgpu::read_spirv(std::io::Cursor::new(&fs[..])).unwrap());
 
     let bind_group_layout =
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { bindings: &[] });
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            bindings: &[],
+            label: None,
+        });
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         layout: &bind_group_layout,
         bindings: &[],
+        label: None,
     });
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -101,11 +105,13 @@ fn build_pipeline(device: &wgpu::Device) -> (wgpu::RenderPipeline, wgpu::BindGro
             write_mask: wgpu::ColorWrite::ALL,
         }],
         depth_stencil_state: None,
-        index_format: wgpu::IndexFormat::Uint16,
-        vertex_buffers: &[],
         sample_count: 1,
         sample_mask: !0,
         alpha_to_coverage_enabled: false,
+        vertex_state: wgpu::VertexStateDescriptor {
+            index_format: wgpu::IndexFormat::Uint16,
+            vertex_buffers: &[],
+        },
     });
 
     (pipeline, bind_group)
