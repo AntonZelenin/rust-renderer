@@ -4,21 +4,48 @@ use shaderc;
 use shaderc::CompilationArtifact;
 use std::fs;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Write, Read};
+use wgpu::{BindGroupLayout, BindGroupDescriptor, BindGroupLayoutDescriptor, BindGroup};
 
 pub struct Scene {
     pub background_color: Color,
     pipeline: wgpu::RenderPipeline,
+    color_pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
 }
 
 impl Scene {
     pub fn new(device: &wgpu::Device) -> Scene {
-        let (pipeline, bind_group) = build_pipeline(device);
-
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                bindings: &[],
+                label: None,
+            });
+        let bind_group = build_bind_group(device, &bind_group_layout);
+        compile_my_shader("examples/iced_triangle/shader/challenge.frag", "examples/iced_triangle/shader/challenge_frag.spv", shaderc::ShaderKind::Fragment);
+        compile_my_shader("examples/iced_triangle/shader/challenge.vert", "examples/iced_triangle/shader/challenge_vert.spv", shaderc::ShaderKind::Vertex);
+        // compile_my_shader("examples/iced_triangle/shader/my.frag", "examples/iced_triangle/shader/my_frag.spv", shaderc::ShaderKind::Fragment);
+        // compile_my_shader("examples/iced_triangle/shader/my.vert", "examples/iced_triangle/shader/my_vert.spv", shaderc::ShaderKind::Vertex);
+        let color_pipeline = build_pipeline(
+            device,
+            BuildPipelineDescriptor {
+                farg_path: "examples/iced_triangle/shader/my_frag.spv",
+                vert_path: "examples/iced_triangle/shader/my_vert.spv",
+                bind_group_layout: &bind_group_layout,
+            }
+        );
+        let pipeline = build_pipeline(
+            device,
+            BuildPipelineDescriptor {
+                farg_path: "examples/iced_triangle/shader/challenge_frag.spv",
+                vert_path: "examples/iced_triangle/shader/challenge_vert.spv",
+                bind_group_layout: &bind_group_layout,
+            }
+        );
         Scene {
-            background_color: Color::BLACK,
+            background_color: Color::WHITE,
             pipeline,
+            color_pipeline,
             bind_group,
         }
     }
@@ -32,7 +59,6 @@ impl Scene {
                 store_op: wgpu::StoreOp::Store,
                 clear_color: {
                     let [r, g, b, a] = self.background_color.into_linear();
-
                     wgpu::Color {
                         r: r as f64,
                         g: g as f64,
@@ -50,34 +76,37 @@ impl Scene {
     }
 }
 
-fn build_pipeline(device: &wgpu::Device) -> (wgpu::RenderPipeline, wgpu::BindGroup) {
-    compile_my_shader("examples/iced_triangle/shader/my.frag", "examples/iced_triangle/shader/my_frag.spv", shaderc::ShaderKind::Fragment);
-    compile_my_shader("examples/iced_triangle/shader/my.vert", "examples/iced_triangle/shader/my_vert.spv", shaderc::ShaderKind::Vertex);
+struct BuildPipelineDescriptor<'a> {
+    farg_path: &'a str,
+    vert_path: &'a str,
+    bind_group_layout: &'a BindGroupLayout,
+}
+
+fn get_file_as_byte_vec(filename: &String) -> Vec<u8> {
+    let mut f = File::open(&filename).expect("no file found");
+    let metadata = fs::metadata(&filename).expect("unable to read metadata");
+    let mut buffer = vec![0; metadata.len() as usize];
+    f.read(&mut buffer).expect("buffer overflow");
+
+    buffer
+}
+
+fn build_pipeline(device: &wgpu::Device, build_pipeline_descriptor: BuildPipelineDescriptor) -> wgpu::RenderPipeline {
     // let vs = include_bytes!("shader/vert.spv");
     // let fs = include_bytes!("shader/frag.spv");
-    let fs = include_bytes!("shader/my_frag.spv");
-    let vs = include_bytes!("shader/my_vert.spv");
+    // let fs = include_bytes!("shader/my_frag.spv");
+    // let vs = include_bytes!("shader/my_vert.spv");
+
+    let fs = get_file_as_byte_vec(&build_pipeline_descriptor.farg_path.to_string());
+    let vs = get_file_as_byte_vec(&build_pipeline_descriptor.vert_path.to_string());
 
     let vs_module =
         device.create_shader_module(&wgpu::read_spirv(std::io::Cursor::new(&vs[..])).unwrap());
-
     let fs_module =
         device.create_shader_module(&wgpu::read_spirv(std::io::Cursor::new(&fs[..])).unwrap());
 
-    let bind_group_layout =
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            bindings: &[],
-            label: None,
-        });
-
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &bind_group_layout,
-        bindings: &[],
-        label: None,
-    });
-
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        bind_group_layouts: &[&bind_group_layout],
+        bind_group_layouts: &[&build_pipeline_descriptor.bind_group_layout],
     });
 
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -113,8 +142,15 @@ fn build_pipeline(device: &wgpu::Device) -> (wgpu::RenderPipeline, wgpu::BindGro
             vertex_buffers: &[],
         },
     });
+    pipeline
+}
 
-    (pipeline, bind_group)
+fn build_bind_group(device: &wgpu::Device, bind_group_layout: &BindGroupLayout) -> BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: bind_group_layout,
+        bindings: &[],
+        label: None,
+    })
 }
 
 fn compile_my_shader(path: &str, out: &str, shader_type: shaderc::ShaderKind) {
@@ -125,7 +161,8 @@ fn compile_my_shader(path: &str, out: &str, shader_type: shaderc::ShaderKind) {
     let frag= compiler.compile_into_spirv(
         &source,
         shader_type,
-        "my.frag",
+        // "my.frag",
+        path,
         "main",
         Some(&options)
     ).unwrap();
