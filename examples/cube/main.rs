@@ -1,160 +1,138 @@
-use iced_wgpu::wgpu;
+mod scene;
+
+use scene::Scene;
+use iced_wgpu::{wgpu, Renderer, Settings, Backend, Viewport};
+use iced_winit::{winit, Size};
 use iced_winit::winit::{
-    event::*,
-    event_loop::{EventLoop, ControlFlow},
-    window::{Window, WindowBuilder},
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop}
 };
 
-struct State {
-    surface: wgpu::Surface,
-    adapter: wgpu::Adapter,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    sc_desc: wgpu::SwapChainDescriptor,
-    swap_chain: wgpu::SwapChain,
+pub fn main() {
+    // Initialize winit
+    let event_loop = EventLoop::new();
+    let window = winit::window::Window::new(&event_loop).unwrap();
 
-    size: winit::dpi::PhysicalSize<u32>,
-    color: wgpu::Color,
-}
+    let physical_size = window.inner_size();
+    // let mut viewport = Viewport::with_physical_size(
+    //     Size::new(physical_size.width, physical_size.height),
+    //     window.scale_factor(),
+    // );
 
-impl State {
-    async fn new(window: &Window) -> Self {
-        let size = window.inner_size();
-        let surface = wgpu::Surface::create(window);
+    // Initialize WGPU
+    // contains properties of gpu like name, extensions etc. It's like a graphics driver
+    let surface = wgpu::Surface::create(&window);
+    let (mut device, queue) = futures::executor::block_on(async {
         let adapter = wgpu::Adapter::request(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::Default,
                 compatible_surface: Some(&surface),
             },
             wgpu::BackendBit::PRIMARY,
-        ).await.unwrap();
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
-            extensions: wgpu::Extensions {
-                anisotropic_filtering: false,
+        )
+            .await
+            .expect("Request adapter");
+
+        adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                extensions: wgpu::Extensions {
+                    anisotropic_filtering: false,
+                },
+                limits: wgpu::Limits::default(),
+            })
+            .await
+    });
+    let format = wgpu::TextureFormat::Bgra8UnormSrgb;
+
+    let mut swap_chain = {
+        let size = window.inner_size();
+
+        device.create_swap_chain(
+            &surface,
+            &wgpu::SwapChainDescriptor {
+                usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+                format: format,
+                width: size.width,
+                height: size.height,
+                present_mode: wgpu::PresentMode::Mailbox,
             },
-            limits: Default::default(),
-        }).await;
-        let sc_desc = wgpu::SwapChainDescriptor {
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-        };
-        let swap_chain = device.create_swap_chain(&surface, &sc_desc);
-        Self {
-            surface,
-            adapter,
-            device,
-            queue,
-            sc_desc,
-            swap_chain,
-            size,
-            color: wgpu::Color {
-                r: 0.1,
-                g: 0.2,
-                b: 0.3,
-                a: 1.0,
-            }
-        }
-    }
+        )
+    };
+    let mut resized = false;
 
-    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        self.size = new_size;
-        self.sc_desc.height = new_size.height;
-        self.sc_desc.width = new_size.width;
-        self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
-    }
+    // Initialize iced
+    // let mut renderer =
+    //     Renderer::new(Backend::new(&mut device, Settings::default()));
 
-    fn input(&mut self, event: &WindowEvent) -> bool {
-        false
-    }
+    let scene = Scene::new(&device);
 
-    fn update(&mut self) {
-
-    }
-
-    fn render(&mut self) {
-        let frame = self.swap_chain.get_next_texture()
-            .expect("Timeout getting texture");
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
-        {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[
-                    wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &frame.view,
-                        resolve_target: None,
-                        load_op: wgpu::LoadOp::Clear,
-                        store_op: wgpu::StoreOp::Store,
-                        clear_color: self.color,
-                    }
-                ],
-                depth_stencil_attachment: None,
-            });
-        }
-        self.queue.submit(&[encoder.finish()]);
-    }
-}
-
-fn main() {
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .build(&event_loop)
-        .unwrap();
-    let mut state = futures::executor::block_on(State::new(&window));
+    // Run event loop
     event_loop.run(move |event, _, control_flow| {
+        // You should change this if you want to render continuosly
+        *control_flow = ControlFlow::Wait;
+
         match event {
-            Event::RedrawRequested(_) => {
-                state.update();
-                state.render();
-            }
-            Event::MainEventsCleared => {
-                // RedrawRequested will only trigger once, unless we manually request it.
-                window.request_redraw();
-            }
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == window.id() => if !state.input(event) {
+            Event::WindowEvent { event, .. } => {
                 match event {
-                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                    WindowEvent::KeyboardInput {
-                        input,
-                        ..
-                    } => {
-                        match input {
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Escape),
-                                ..
-                            } => *control_flow = ControlFlow::Exit,
-                            _ => {}
-                        }
+                    WindowEvent::CloseRequested => {
+                        *control_flow = ControlFlow::Exit;
                     }
-                    WindowEvent::Resized(physical_size) => {
-                        state.resize(*physical_size);
-                    }
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        // new_inner_size is &mut so w have to dereference it twice
-                        state.resize(**new_inner_size);
-                    }
-                    WindowEvent::CursorMoved {
-                        position,
-                        ..
-                    } => {
-                        state.color = wgpu::Color {
-                            r: position.x / 1920.0,
-                            g: position.y / 1080.0,
-                            b: (position.x + position.y) / (1920.0 + 1080.0),
-                            a: 1.0,
-                        };
+                    WindowEvent::Resized(new_size) => {
+                        window.set_inner_size(new_size.to_logical::<f32>(window.scale_factor()));
+                        resized = true;
                     }
                     _ => {}
                 }
+
+            }
+            Event::RedrawRequested(_) => {
+                if resized {
+                    let size = window.inner_size();
+
+                    swap_chain = device.create_swap_chain(
+                        &surface,
+                        &wgpu::SwapChainDescriptor {
+                            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+                            format,
+                            width: size.width,
+                            height: size.height,
+                            present_mode: wgpu::PresentMode::Mailbox,
+                        },
+                    );
+
+                    resized = false;
+                }
+
+                let frame = swap_chain.get_next_texture().expect("Next frame");
+
+                let mut encoder = device.create_command_encoder(
+                    &wgpu::CommandEncoderDescriptor { label: None },
+                );
+
+                // We draw the scene first
+                scene.draw(&mut encoder, &frame.view);
+
+                // And then iced on top
+                // let mouse_interaction = renderer.backend_mut().draw(
+                //     &mut device,
+                //     &mut encoder,
+                //     &frame.view,
+                //     &viewport,
+                //     state.primitive(),
+                //     &debug.overlay(),
+                // );
+
+                // Then we submit the work
+                queue.submit(&[encoder.finish()]);
+
+                // And update the mouse cursor
+                // window.set_cursor_icon(
+                //     iced_winit::conversion::mouse_interaction(
+                //         mouse_interaction,
+                //     ),
+                // );
             }
             _ => {}
         }
-    });
+    })
 }

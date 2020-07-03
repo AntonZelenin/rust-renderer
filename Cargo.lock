@@ -1762,6 +1762,7 @@ dependencies = [
 name = "rust-renderer"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "futures 0.3.5",
  "iced",
  "iced_wgpu",

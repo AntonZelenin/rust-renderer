@@ -1,18 +1,72 @@
 use iced_wgpu::wgpu;
 use iced_winit::Color;
 use shaderc;
-use shaderc::CompilationArtifact;
 use std::fs;
 use std::fs::File;
 use std::io::{Write, Read};
-use wgpu::{BindGroupLayout, BindGroupDescriptor, BindGroupLayoutDescriptor, BindGroup};
+use wgpu::{BindGroupLayout, BindGroup};
+use bytemuck;
+
+// const VERTICES: &[Vertex] = &[
+//     Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
+//     Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
+//     Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+// ];
+
+const VERTICES: &[Vertex] = &[
+    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
+    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
+    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
+    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
+    Vertex { position: [0.44147372, 0.2347359, 0.0],color: [0.5, 0.0, 0.5] }, // E
+];
+
+const INDICES: &[u16] = &[
+    0, 1, 4,
+    1, 2, 4,
+    2, 3, 4,
+];
+
+unsafe impl bytemuck::Pod for Vertex {}
+unsafe impl bytemuck::Zeroable for Vertex {}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl Vertex {
+    fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a> {
+        use std::mem;
+        wgpu::VertexBufferDescriptor {
+            stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::InputStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttributeDescriptor {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float3,
+                },
+                wgpu::VertexAttributeDescriptor {
+                    offset: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float3,
+                },
+            ]
+        }
+    }
+}
 
 pub struct Scene {
     pub background_color: Color,
     pipeline: wgpu::RenderPipeline,
-    color_pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
-    use_color: bool,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_vertices: u32,
+    num_indices: u32,
 }
 
 impl Scene {
@@ -23,37 +77,33 @@ impl Scene {
                 label: None,
             });
         let bind_group = build_bind_group(device, &bind_group_layout);
-        compile_my_shader("examples/iced_triangle/shader/challenge.frag", "examples/iced_triangle/shader/challenge_frag.spv", shaderc::ShaderKind::Fragment);
-        compile_my_shader("examples/iced_triangle/shader/challenge.vert", "examples/iced_triangle/shader/challenge_vert.spv", shaderc::ShaderKind::Vertex);
-        // compile_my_shader("examples/iced_triangle/shader/my.frag", "examples/iced_triangle/shader/my_frag.spv", shaderc::ShaderKind::Fragment);
-        // compile_my_shader("examples/iced_triangle/shader/my.vert", "examples/iced_triangle/shader/my_vert.spv", shaderc::ShaderKind::Vertex);
+        compile_my_shader("examples/cube/shader/my.frag", "examples/cube/shader/my_frag.spv", shaderc::ShaderKind::Fragment);
+        compile_my_shader("examples/cube/shader/my.vert", "examples/cube/shader/my_vert.spv", shaderc::ShaderKind::Vertex);
         let pipeline = build_pipeline(
             device,
             BuildPipelineDescriptor {
-                farg_path: "examples/iced_triangle/shader/my_frag.spv",
-                vert_path: "examples/iced_triangle/shader/my_vert.spv",
+                frag_path: "examples/cube/shader/my_frag.spv",
+                vert_path: "examples/cube/shader/my_vert.spv",
                 bind_group_layout: &bind_group_layout,
             }
         );
-        let color_pipeline = build_pipeline(
-            device,
-            BuildPipelineDescriptor {
-                farg_path: "examples/iced_triangle/shader/challenge_frag.spv",
-                vert_path: "examples/iced_triangle/shader/challenge_vert.spv",
-                bind_group_layout: &bind_group_layout,
-            }
+        let vertex_buffer = device.create_buffer_with_data(
+            bytemuck::cast_slice(VERTICES),
+            wgpu::BufferUsage::VERTEX,
+        );
+        let index_buffer = device.create_buffer_with_data(
+            bytemuck::cast_slice(INDICES),
+            wgpu::BufferUsage::INDEX,
         );
         Scene {
             background_color: Color::WHITE,
             pipeline,
-            color_pipeline,
             bind_group,
-            use_color: false,
+            vertex_buffer,
+            index_buffer,
+            num_vertices: VERTICES.len() as u32,
+            num_indices: INDICES.len() as u32,
         }
-    }
-
-    pub fn toggle_use_color(&mut self) {
-        self.use_color = !self.use_color;
     }
 
     pub fn draw(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
@@ -75,20 +125,18 @@ impl Scene {
             }],
             depth_stencil_attachment: None,
         });
-        rpass.set_pipeline(
-            if !self.use_color {
-                &self.pipeline
-            } else {
-                &self.color_pipeline
-            }
-        );
+
+        rpass.set_pipeline(&self.pipeline);
         rpass.set_bind_group(0, &self.bind_group, &[]);
-        rpass.draw(0..3, 0..1);
+        rpass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
+        rpass.set_index_buffer(&self.index_buffer, 0, 0); // 1.
+        rpass.draw_indexed(0..self.num_indices, 0, 0..1); // 2.
+        // rpass.draw(0..self.num_vertices, 0..1);
     }
 }
 
 struct BuildPipelineDescriptor<'a> {
-    farg_path: &'a str,
+    frag_path: &'a str,
     vert_path: &'a str,
     bind_group_layout: &'a BindGroupLayout,
 }
@@ -103,12 +151,7 @@ fn get_file_as_byte_vec(filename: &String) -> Vec<u8> {
 }
 
 fn build_pipeline(device: &wgpu::Device, build_pipeline_descriptor: BuildPipelineDescriptor) -> wgpu::RenderPipeline {
-    // let vs = include_bytes!("shader/vert.spv");
-    // let fs = include_bytes!("shader/frag.spv");
-    // let fs = include_bytes!("shader/my_frag.spv");
-    // let vs = include_bytes!("shader/my_vert.spv");
-
-    let fs = get_file_as_byte_vec(&build_pipeline_descriptor.farg_path.to_string());
+    let fs = get_file_as_byte_vec(&build_pipeline_descriptor.frag_path.to_string());
     let vs = get_file_as_byte_vec(&build_pipeline_descriptor.vert_path.to_string());
 
     let vs_module =
@@ -150,7 +193,7 @@ fn build_pipeline(device: &wgpu::Device, build_pipeline_descriptor: BuildPipelin
         alpha_to_coverage_enabled: false,
         vertex_state: wgpu::VertexStateDescriptor {
             index_format: wgpu::IndexFormat::Uint16,
-            vertex_buffers: &[],
+            vertex_buffers: &[Vertex::desc()],
         },
     });
     pipeline

@@ -4,7 +4,7 @@ use scene::Scene;
 use iced_wgpu::{wgpu, Primitive, Renderer, Settings, Backend, Viewport};
 use iced_winit::{winit, Size};
 use iced_winit::winit::{
-    event::{Event, WindowEvent},
+    event::*,
     event_loop::{ControlFlow, EventLoop},
     dpi::LogicalSize
 };
@@ -65,9 +65,8 @@ pub fn main() {
     let mut renderer =
         Renderer::new(Backend::new(&mut device, Settings::default()));
 
-    let scene = Scene::new(&device);
+    let mut scene = Scene::new(&device);
 
-    // Run event loop
     event_loop.run(move |event, _, control_flow| {
         // You should change this if you want to render continuosly
         *control_flow = ControlFlow::Wait;
@@ -82,9 +81,24 @@ pub fn main() {
                         window.set_inner_size(new_size.to_logical::<f32>(window.scale_factor()));
                         resized = true;
                     }
+                    WindowEvent::KeyboardInput {
+                        input,
+                        ..
+                    } => {
+                        match input {
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(VirtualKeyCode::Space),
+                                ..
+                            } => {
+                                scene.toggle_use_color();
+                                window.request_redraw();
+                            },
+                            _ => {}
+                        }
+                    }
                     _ => {}
                 }
-
             }
             Event::RedrawRequested(_) => {
                 if resized {

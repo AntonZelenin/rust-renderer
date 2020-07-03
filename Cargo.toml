@@ -17,3 +17,4 @@ iced = { path = "/home/anton/Documents/other_repos/iced"}
 iced_winit = { path = "/home/anton/Documents/other_repos/iced/winit" }
 iced_wgpu = { path = "/home/anton/Documents/other_repos/iced/wgpu" }
 shaderc = "0.6.2"
+bytemuck = "1.2.0"
