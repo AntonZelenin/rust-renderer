@@ -1,13 +1,13 @@
 mod scene;
 
-use scene::Scene;
-use iced_wgpu::{wgpu, Primitive, Renderer, Settings, Backend, Viewport};
-use iced_winit::{winit, Size};
+use iced_wgpu::{wgpu, Backend, Primitive, Renderer, Settings, Viewport};
 use iced_winit::winit::{
+    dpi::LogicalSize,
     event::*,
     event_loop::{ControlFlow, EventLoop},
-    dpi::LogicalSize
 };
+use iced_winit::{winit, Size};
+use scene::Scene;
 
 pub fn main() {
     // Initialize winit
@@ -31,8 +31,8 @@ pub fn main() {
             },
             wgpu::BackendBit::PRIMARY,
         )
-            .await
-            .expect("Request adapter");
+        .await
+        .expect("Request adapter");
 
         adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -62,8 +62,7 @@ pub fn main() {
     let mut resized = false;
 
     // Initialize iced
-    let mut renderer =
-        Renderer::new(Backend::new(&mut device, Settings::default()));
+    let mut renderer = Renderer::new(Backend::new(&mut device, Settings::default()));
 
     let mut scene = Scene::new(&device);
 
@@ -72,34 +71,27 @@ pub fn main() {
         *control_flow = ControlFlow::Wait;
 
         match event {
-            Event::WindowEvent { event, .. } => {
-                match event {
-                    WindowEvent::CloseRequested => {
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    WindowEvent::Resized(new_size) => {
-                        window.set_inner_size(new_size.to_logical::<f32>(window.scale_factor()));
-                        resized = true;
-                    }
-                    WindowEvent::KeyboardInput {
-                        input,
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                }
+                WindowEvent::Resized(new_size) => {
+                    window.set_inner_size(new_size.to_logical::<f32>(window.scale_factor()));
+                    resized = true;
+                }
+                WindowEvent::KeyboardInput { input, .. } => match input {
+                    KeyboardInput {
+                        state: ElementState::Pressed,
+                        virtual_keycode: Some(VirtualKeyCode::Space),
                         ..
                     } => {
-                        match input {
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Space),
-                                ..
-                            } => {
-                                scene.toggle_use_color();
-                                window.request_redraw();
-                            },
-                            _ => {}
-                        }
+                        scene.toggle_use_color();
+                        window.request_redraw();
                     }
                     _ => {}
-                }
-            }
+                },
+                _ => {}
+            },
             Event::RedrawRequested(_) => {
                 if resized {
                     let size = window.inner_size();
@@ -120,9 +112,8 @@ pub fn main() {
 
                 let frame = swap_chain.get_next_texture().expect("Next frame");
 
-                let mut encoder = device.create_command_encoder(
-                    &wgpu::CommandEncoderDescriptor { label: None },
-                );
+                let mut encoder =
+                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
                 // We draw the scene first
                 scene.draw(&mut encoder, &frame.view);

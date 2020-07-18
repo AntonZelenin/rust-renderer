@@ -4,8 +4,8 @@ use shaderc;
 use shaderc::CompilationArtifact;
 use std::fs;
 use std::fs::File;
-use std::io::{Write, Read};
-use wgpu::{BindGroupLayout, BindGroupDescriptor, BindGroupLayoutDescriptor, BindGroup};
+use std::io::{Read, Write};
+use wgpu::{BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor};
 
 pub struct Scene {
     pub background_color: Color,
@@ -17,14 +17,21 @@ pub struct Scene {
 
 impl Scene {
     pub fn new(device: &wgpu::Device) -> Scene {
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                bindings: &[],
-                label: None,
-            });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            bindings: &[],
+            label: None,
+        });
         let bind_group = build_bind_group(device, &bind_group_layout);
-        compile_my_shader("examples/iced_triangle/shader/challenge.frag", "examples/iced_triangle/shader/challenge_frag.spv", shaderc::ShaderKind::Fragment);
-        compile_my_shader("examples/iced_triangle/shader/challenge.vert", "examples/iced_triangle/shader/challenge_vert.spv", shaderc::ShaderKind::Vertex);
+        compile_my_shader(
+            "examples/iced_triangle/shader/challenge.frag",
+            "examples/iced_triangle/shader/challenge_frag.spv",
+            shaderc::ShaderKind::Fragment,
+        );
+        compile_my_shader(
+            "examples/iced_triangle/shader/challenge.vert",
+            "examples/iced_triangle/shader/challenge_vert.spv",
+            shaderc::ShaderKind::Vertex,
+        );
         // compile_my_shader("examples/iced_triangle/shader/my.frag", "examples/iced_triangle/shader/my_frag.spv", shaderc::ShaderKind::Fragment);
         // compile_my_shader("examples/iced_triangle/shader/my.vert", "examples/iced_triangle/shader/my_vert.spv", shaderc::ShaderKind::Vertex);
         let pipeline = build_pipeline(
@@ -33,7 +40,7 @@ impl Scene {
                 farg_path: "examples/iced_triangle/shader/my_frag.spv",
                 vert_path: "examples/iced_triangle/shader/my_vert.spv",
                 bind_group_layout: &bind_group_layout,
-            }
+            },
         );
         let color_pipeline = build_pipeline(
             device,
@@ -41,7 +48,7 @@ impl Scene {
                 farg_path: "examples/iced_triangle/shader/challenge_frag.spv",
                 vert_path: "examples/iced_triangle/shader/challenge_vert.spv",
                 bind_group_layout: &bind_group_layout,
-            }
+            },
         );
         Scene {
             background_color: Color::WHITE,
@@ -75,13 +82,11 @@ impl Scene {
             }],
             depth_stencil_attachment: None,
         });
-        rpass.set_pipeline(
-            if !self.use_color {
-                &self.pipeline
-            } else {
-                &self.color_pipeline
-            }
-        );
+        rpass.set_pipeline(if !self.use_color {
+            &self.pipeline
+        } else {
+            &self.color_pipeline
+        });
         rpass.set_bind_group(0, &self.bind_group, &[]);
         rpass.draw(0..3, 0..1);
     }
@@ -102,7 +107,10 @@ fn get_file_as_byte_vec(filename: &String) -> Vec<u8> {
     buffer
 }
 
-fn build_pipeline(device: &wgpu::Device, build_pipeline_descriptor: BuildPipelineDescriptor) -> wgpu::RenderPipeline {
+fn build_pipeline(
+    device: &wgpu::Device,
+    build_pipeline_descriptor: BuildPipelineDescriptor,
+) -> wgpu::RenderPipeline {
     // let vs = include_bytes!("shader/vert.spv");
     // let fs = include_bytes!("shader/frag.spv");
     // let fs = include_bytes!("shader/my_frag.spv");
@@ -169,14 +177,16 @@ fn compile_my_shader(path: &str, out: &str, shader_type: shaderc::ShaderKind) {
     let mut options = shaderc::CompileOptions::new().unwrap();
     options.add_macro_definition("EP", Some("main"));
     let source = fs::read_to_string(path).expect("file doesn't exist");
-    let frag= compiler.compile_into_spirv(
-        &source,
-        shader_type,
-        // "my.frag",
-        path,
-        "main",
-        Some(&options)
-    ).unwrap();
+    let frag = compiler
+        .compile_into_spirv(
+            &source,
+            shader_type,
+            // "my.frag",
+            path,
+            "main",
+            Some(&options),
+        )
+        .unwrap();
     let mut file = File::create(out).unwrap();
     file.write_all(frag.as_binary_u8());
 }

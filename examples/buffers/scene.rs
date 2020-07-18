@@ -1,29 +1,44 @@
+use bytemuck;
 use iced_wgpu::wgpu;
 use iced_winit::Color;
 use shaderc;
 use std::fs;
 use std::fs::File;
-use std::io::{Write, Read};
-use wgpu::{BindGroupLayout, BindGroup};
-use bytemuck;
+use std::io::{Read, Write};
+use wgpu::{BindGroup, BindGroupLayout};
 
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [0.1, -0.8, 0.0], color: [0.1, 0.2, 0.3] },
-    Vertex { position: [0.7, 0.6, 0.0], color: [0.4, 0.5, 0.6] },
-    Vertex { position: [0.5, 0.6, 0.0], color: [0.7, 0.8, 0.9] },
-    Vertex { position: [-0.0, -0.5, 0.0], color: [0.1, 0.0, 1.0] },
-    Vertex { position: [-0.5, 0.6, 0.0], color: [0.4, 0.3, 0.2] },
-    Vertex { position: [-0.7, 0.6, 0.0], color: [0.6, 0.5, 0.4] },
-    Vertex { position: [-0.1, -0.8, 0.0], color: [0.9, 0.8, 0.7] },
+    Vertex {
+        position: [0.1, -0.8, 0.0],
+        color: [0.1, 0.2, 0.3],
+    },
+    Vertex {
+        position: [0.7, 0.6, 0.0],
+        color: [0.4, 0.5, 0.6],
+    },
+    Vertex {
+        position: [0.5, 0.6, 0.0],
+        color: [0.7, 0.8, 0.9],
+    },
+    Vertex {
+        position: [-0.0, -0.5, 0.0],
+        color: [0.1, 0.0, 1.0],
+    },
+    Vertex {
+        position: [-0.5, 0.6, 0.0],
+        color: [0.4, 0.3, 0.2],
+    },
+    Vertex {
+        position: [-0.7, 0.6, 0.0],
+        color: [0.6, 0.5, 0.4],
+    },
+    Vertex {
+        position: [-0.1, -0.8, 0.0],
+        color: [0.9, 0.8, 0.7],
+    },
 ];
 
-const INDICES: &[u16] = &[
-    0, 1, 2,
-    0, 2, 3,
-    0, 3, 6,
-    3, 4, 6,
-    4, 5, 6,
-];
+const INDICES: &[u16] = &[0, 1, 2, 0, 2, 3, 0, 3, 6, 3, 4, 6, 4, 5, 6];
 
 unsafe impl bytemuck::Pod for Vertex {}
 unsafe impl bytemuck::Zeroable for Vertex {}
@@ -52,7 +67,7 @@ impl Vertex {
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float3,
                 },
-            ]
+            ],
         }
     }
 }
@@ -69,30 +84,33 @@ pub struct Scene {
 
 impl Scene {
     pub fn new(device: &wgpu::Device) -> Scene {
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                bindings: &[],
-                label: None,
-            });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            bindings: &[],
+            label: None,
+        });
         let bind_group = build_bind_group(device, &bind_group_layout);
-        compile_my_shader("examples/buffers/shader/my.frag", "examples/buffers/shader/my_frag.spv", shaderc::ShaderKind::Fragment);
-        compile_my_shader("examples/buffers/shader/my.vert", "examples/buffers/shader/my_vert.spv", shaderc::ShaderKind::Vertex);
+        compile_my_shader(
+            "examples/buffers/shader/my.frag",
+            "examples/buffers/shader/my_frag.spv",
+            shaderc::ShaderKind::Fragment,
+        );
+        compile_my_shader(
+            "examples/buffers/shader/my.vert",
+            "examples/buffers/shader/my_vert.spv",
+            shaderc::ShaderKind::Vertex,
+        );
         let pipeline = build_pipeline(
             device,
             BuildPipelineDescriptor {
                 frag_path: "examples/buffers/shader/my_frag.spv",
                 vert_path: "examples/buffers/shader/my_vert.spv",
                 bind_group_layout: &bind_group_layout,
-            }
+            },
         );
-        let vertex_buffer = device.create_buffer_with_data(
-            bytemuck::cast_slice(VERTICES),
-            wgpu::BufferUsage::VERTEX,
-        );
-        let index_buffer = device.create_buffer_with_data(
-            bytemuck::cast_slice(INDICES),
-            wgpu::BufferUsage::INDEX,
-        );
+        let vertex_buffer = device
+            .create_buffer_with_data(bytemuck::cast_slice(VERTICES), wgpu::BufferUsage::VERTEX);
+        let index_buffer =
+            device.create_buffer_with_data(bytemuck::cast_slice(INDICES), wgpu::BufferUsage::INDEX);
         Scene {
             background_color: Color::WHITE,
             pipeline,
@@ -129,7 +147,7 @@ impl Scene {
         rpass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
         rpass.set_index_buffer(&self.index_buffer, 0, 0); // 1.
         rpass.draw_indexed(0..self.num_indices, 0, 0..1); // 2.
-        // rpass.draw(0..self.num_vertices, 0..1);
+                                                          // rpass.draw(0..self.num_vertices, 0..1);
     }
 }
 
@@ -148,7 +166,10 @@ fn get_file_as_byte_vec(filename: &String) -> Vec<u8> {
     buffer
 }
 
-fn build_pipeline(device: &wgpu::Device, build_pipeline_descriptor: BuildPipelineDescriptor) -> wgpu::RenderPipeline {
+fn build_pipeline(
+    device: &wgpu::Device,
+    build_pipeline_descriptor: BuildPipelineDescriptor,
+) -> wgpu::RenderPipeline {
     let fs = get_file_as_byte_vec(&build_pipeline_descriptor.frag_path.to_string());
     let vs = get_file_as_byte_vec(&build_pipeline_descriptor.vert_path.to_string());
 
@@ -210,14 +231,16 @@ fn compile_my_shader(path: &str, out: &str, shader_type: shaderc::ShaderKind) {
     let mut options = shaderc::CompileOptions::new().unwrap();
     options.add_macro_definition("EP", Some("main"));
     let source = fs::read_to_string(path).expect("file doesn't exist");
-    let frag= compiler.compile_into_spirv(
-        &source,
-        shader_type,
-        // "my.frag",
-        path,
-        "main",
-        Some(&options)
-    ).unwrap();
+    let frag = compiler
+        .compile_into_spirv(
+            &source,
+            shader_type,
+            // "my.frag",
+            path,
+            "main",
+            Some(&options),
+        )
+        .unwrap();
     let mut file = File::create(out).unwrap();
     file.write_all(frag.as_binary_u8());
 }
