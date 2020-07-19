@@ -66,8 +66,9 @@ pub struct State {
     index_buffer: wgpu::Buffer,
     num_indices: u32,
 
-    // diffuse_texture: texture::Texture,
+    show_1: bool,
     diffuse_bind_group: wgpu::BindGroup,
+    diffuse_bind_group_2: wgpu::BindGroup,
 
     size: winit::dpi::PhysicalSize<u32>,
 }
@@ -114,7 +115,7 @@ impl State {
             "happy-tree.png"
         ).unwrap();
 
-        // todo why is this here?
+
         queue.submit(&[cmd_buffer]);
 
         let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -136,6 +137,16 @@ impl State {
             ],
             label: Some("texture_bind_group_layout"),
         });
+
+        let diffuse_bytes = include_bytes!("insta.png");
+        let (diffuse_texture_2, cmd_buffer) = texture::Texture::from_bytes(
+            &device,
+            diffuse_bytes,
+            "insta.png"
+        ).unwrap();
+
+
+        queue.submit(&[cmd_buffer]);
 
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts: &[&texture_bind_group_layout],
@@ -199,6 +210,20 @@ impl State {
             ],
             label: Some("diffuse_bind_group"),
         });
+        let diffuse_bind_group_2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            bindings: &[
+                wgpu::Binding {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_2.view),
+                },
+                wgpu::Binding {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture_2.sampler),
+                }
+            ],
+            label: Some("diffuse_bind_group_2"),
+        });
         
         Self {
             surface,
@@ -210,8 +235,9 @@ impl State {
             vertex_buffer,
             index_buffer,
             num_indices: INDICES.len() as u32,
-            // diffuse_texture,
+            show_1: true,
             diffuse_bind_group,
+            diffuse_bind_group_2,
             size
         }
     }
@@ -251,7 +277,7 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(0, if self.show_1 { &self.diffuse_bind_group } else { &self.diffuse_bind_group_2 }, &[]);
             render_pass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
             render_pass.set_index_buffer(&self.index_buffer, 0, 0);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
@@ -293,6 +319,17 @@ pub fn main() {
                 WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                     state.resize(*new_inner_size);
                 }
+                WindowEvent::KeyboardInput { input, .. } => match input {
+                    KeyboardInput {
+                        state: ElementState::Pressed,
+                        virtual_keycode: Some(VirtualKeyCode::Space),
+                        ..
+                    } => {
+                        state.show_1 = !state.show_1;
+                        window.request_redraw();
+                    }
+                    _ => {}
+                },
                 _ => {}
             },
             Event::RedrawRequested(_) => {
