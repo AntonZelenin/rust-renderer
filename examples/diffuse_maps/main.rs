@@ -74,10 +74,10 @@ impl Instance {
 }
 
 #[repr(C)] // We need this for Rust to store our data correctly for the shaders
-#[derive(Debug, Copy, Clone)] // This is so we can store this in a buffer
+#[derive(Copy, Clone)] // This is so we can store this in a buffer
 struct Uniforms {
     view_proj: cgmath::Matrix4<f32>,
-    model: cgmath::Matrix4<f32>,
+    model: [cgmath::Matrix4<f32>; NUM_INSTANCES as usize],
 }
 
 unsafe impl bytemuck::Pod for Uniforms {}
@@ -87,7 +87,7 @@ impl Uniforms {
     fn new() -> Self {
         Self {
             view_proj: cgmath::Matrix4::identity(),
-            model: cgmath::Matrix4::identity(),
+            model: [cgmath::Matrix4::identity(); NUM_INSTANCES as usize],
         }
     }
 
@@ -396,6 +396,11 @@ impl State {
         self.camera_controller.update_camera(&mut self.camera);
         self.uniforms.update_view_proj(&self.camera);
 
+        for (i, instance) in self.instances.iter().enumerate() {
+            self.uniforms.model[i] = instance.to_matrix();
+        }
+
+
         // Copy operation's are performed on the gpu, so we'll need a CommandEncoder for that
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("update encoder"),
@@ -420,73 +425,37 @@ impl State {
     }
 
     fn render(&mut self) {
-        let frame = self
-            .swap_chain
-            .get_next_texture()
-            .expect("Timeout getting texture");
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
+        let frame = self.swap_chain.get_next_texture().expect("Timeout getting texture");
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        });
 
         {
-            {
-                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    color_attachments: &[
-                        wgpu::RenderPassColorAttachmentDescriptor {
-                            attachment: &frame.view,
-                            resolve_target: None,
-                            load_op: wgpu::LoadOp::Clear,
-                            store_op: wgpu::StoreOp::Store,
-                            clear_color: wgpu::Color {
-                                r: 0.1,
-                                g: 0.2,
-                                b: 0.3,
-                                a: 1.0,
-                            },
-                        }
-                    ],
-                    depth_stencil_attachment: None,
-                });
-            }
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                    attachment: &frame.view,
+                    resolve_target: None,
+                    load_op: wgpu::LoadOp::Clear,
+                    store_op: wgpu::StoreOp::Store,
+                    clear_color: wgpu::Color {
+                        r: 0.1,
+                        g: 0.2,
+                        b: 0.3,
+                        a: 1.0,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
 
-            for instance in &self.instances {
-                // 1.
-                self.uniforms.model = instance.to_matrix();
-                let staging_buffer = self.device.create_buffer_with_data(
-                    bytemuck::cast_slice(&[self.uniforms]),
-                    wgpu::BufferUsage::COPY_SRC,
-                );
-                encoder.copy_buffer_to_buffer(&staging_buffer, 0, &self.uniform_buffer, 0, std::mem::size_of::<Uniforms>() as wgpu::BufferAddress);
-
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &frame.view,
-                        resolve_target: None,
-                        load_op: wgpu::LoadOp::Load,
-                        store_op: wgpu::StoreOp::Store,
-                        clear_color: wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        },
-                    }],
-                    depth_stencil_attachment: None,
-                });
-
-                render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
-                render_pass.set_index_buffer(&self.index_buffer, 0, 0);
-                render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
-            }
-
-            self.queue.submit(&[encoder.finish()]);
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
+            render_pass.set_index_buffer(&self.index_buffer, 0, 0);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..NUM_INSTANCES);
         }
+
+        self.queue.submit(&[encoder.finish()]);
     }
 }
 
