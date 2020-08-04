@@ -30,6 +30,10 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     0.0, 0.0, 0.5, 1.0,
 );
 
+trait VBDesc {
+    fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a>;
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 struct Vertex {
@@ -40,7 +44,7 @@ struct Vertex {
 unsafe impl bytemuck::Pod for Vertex {}
 unsafe impl bytemuck::Zeroable for Vertex {}
 
-impl Vertex {
+impl VBDesc for Vertex {
     fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a> {
         use std::mem;
         wgpu::VertexBufferDescriptor {
@@ -83,6 +87,39 @@ struct InstanceRaw {
 
 unsafe impl bytemuck::Pod for InstanceRaw {}
 unsafe impl bytemuck::Zeroable for InstanceRaw {}
+
+const FLOAT_SIZE: wgpu::BufferAddress = std::mem::size_of::<f32>() as wgpu::BufferAddress;
+impl VBDesc for InstanceRaw {
+    fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a> {
+        wgpu::VertexBufferDescriptor {
+            stride: std::mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
+            step_mode: wgpu::InputStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttributeDescriptor {
+                    offset: 0,
+                    format: wgpu::VertexFormat::Float4,
+                    shader_location: 2,
+                },
+                wgpu::VertexAttributeDescriptor {
+                    offset: FLOAT_SIZE * 4,
+                    format: wgpu::VertexFormat::Float4,
+                    shader_location: 3,
+                },
+                wgpu::VertexAttributeDescriptor {
+                    offset: FLOAT_SIZE * 4 * 2,
+                    format: wgpu::VertexFormat::Float4,
+                    shader_location: 4,
+                },
+                wgpu::VertexAttributeDescriptor {
+                    offset: FLOAT_SIZE * 4 * 3,
+                    format: wgpu::VertexFormat::Float4,
+                    shader_location: 5,
+                },
+            ]
+        }
+    }
+}
+
 
 #[repr(C)] // We need this for Rust to store our data correctly for the shaders
 #[derive(Copy, Clone)] // This is so we can store this in a buffer
@@ -134,6 +171,7 @@ pub struct State {
     render_pipeline: wgpu::RenderPipeline,
 
     vertex_buffer: wgpu::Buffer,
+    instance_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
 
@@ -267,10 +305,9 @@ impl State {
         }).collect::<Vec<_>>();
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer_size = instance_data.len() * std::mem::size_of::<cgmath::Matrix4<f32>>();
         let instance_buffer = device.create_buffer_with_data(
             bytemuck::cast_slice(&instance_data),
-            wgpu::BufferUsage::STORAGE_READ,
+            wgpu::BufferUsage::VERTEX,
         );
 
         let uniform_buffer = device.create_buffer_with_data(
@@ -286,14 +323,6 @@ impl State {
                         visibility: wgpu::ShaderStage::VERTEX,
                         ty: wgpu::BindingType::UniformBuffer { dynamic: false },
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStage::VERTEX,
-                        ty: wgpu::BindingType::StorageBuffer {
-                            dynamic: false,
-                            readonly: true,
-                        }
-                    }
                 ],
                 label: Some("uniform_bind_group_layout"),
             });
@@ -308,14 +337,7 @@ impl State {
                         // FYI: you can share a single buffer between bindings.
                         range: 0..std::mem::size_of_val(&uniforms) as wgpu::BufferAddress,
                     },
-                },
-                wgpu::Binding {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer {
-                        buffer: &instance_buffer,
-                        range: 0..instance_buffer_size as wgpu::BufferAddress,
-                    }
-                },
+                }
             ],
             label: Some("uniform_bind_group"),
         });
@@ -363,7 +385,10 @@ impl State {
             alpha_to_coverage_enabled: false,
             vertex_state: wgpu::VertexStateDescriptor {
                 index_format: wgpu::IndexFormat::Uint16,
-                vertex_buffers: &[Vertex::desc()],
+                vertex_buffers: &[
+                    Vertex::desc(),
+                    InstanceRaw::desc(),
+                ],
             },
         });
 
@@ -392,6 +417,7 @@ impl State {
             swap_chain,
             render_pipeline,
             vertex_buffer,
+            instance_buffer,
             index_buffer,
             num_indices: INDICES.len() as u32,
             diffuse_bind_group,
@@ -476,6 +502,7 @@ impl State {
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, &self.vertex_buffer, 0, 0);
+            render_pass.set_vertex_buffer(1, &self.instance_buffer, 0, 0);
             render_pass.set_index_buffer(&self.index_buffer, 0, 0);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..NUM_INSTANCES);
         }
