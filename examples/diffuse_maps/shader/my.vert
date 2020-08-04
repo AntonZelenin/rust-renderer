@@ -8,10 +8,14 @@ layout(location=0) out vec2 v_tex_coords;
 layout(set=1, binding=0)
 uniform Uniforms {
     mat4 u_view_proj;
-    mat4 u_model[100];
+};
+
+layout(set=1, binding=1)
+buffer Instances {
+    mat4 s_models[];
 };
 
 void main() {
-    gl_Position = u_view_proj * u_model[gl_InstanceIndex] * vec4(a_position, 1.0);
+    gl_Position = u_view_proj * s_models[gl_InstanceIndex] * vec4(a_position, 1.0);
     v_tex_coords = a_tex_coords;
 }

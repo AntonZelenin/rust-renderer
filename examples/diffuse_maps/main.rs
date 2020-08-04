@@ -68,16 +68,26 @@ struct Instance {
 }
 
 impl Instance {
-    fn to_matrix(&self) -> cgmath::Matrix4<f32> {
-        cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)
+    fn to_raw(&self) -> InstanceRaw {
+        InstanceRaw {
+            model: cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation),
+        }
     }
 }
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct InstanceRaw {
+    model: cgmath::Matrix4<f32>,
+}
+
+unsafe impl bytemuck::Pod for InstanceRaw {}
+unsafe impl bytemuck::Zeroable for InstanceRaw {}
 
 #[repr(C)] // We need this for Rust to store our data correctly for the shaders
 #[derive(Copy, Clone)] // This is so we can store this in a buffer
 struct Uniforms {
     view_proj: cgmath::Matrix4<f32>,
-    model: [cgmath::Matrix4<f32>; NUM_INSTANCES as usize],
 }
 
 unsafe impl bytemuck::Pod for Uniforms {}
@@ -87,7 +97,6 @@ impl Uniforms {
     fn new() -> Self {
         Self {
             view_proj: cgmath::Matrix4::identity(),
-            model: [cgmath::Matrix4::identity(); NUM_INSTANCES as usize],
         }
     }
 
@@ -226,12 +235,6 @@ impl State {
                 label: Some("texture_bind_group_layout"),
             });
 
-        let diffuse_bytes = include_bytes!("insta.png");
-        let (diffuse_texture_2, cmd_buffer) =
-            texture::Texture::from_bytes(&device, diffuse_bytes, "insta.png").unwrap();
-
-        queue.submit(&[cmd_buffer]);
-
         let camera = Camera {
             eye: (0.0, 0.0, 2.0).into(),
             target: (0.0, 0.0, 0.0).into(),
@@ -245,6 +248,31 @@ impl State {
         let mut uniforms = Uniforms::new();
         uniforms.update_view_proj(&camera);
 
+        let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|z| {
+            (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                let position = cgmath::Vector3 { x: x as f32, y: 0.0, z: z as f32 } - INSTANCE_DISPLACEMENT;
+
+                let rotation = if position.is_zero() {
+                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                    // as Quaternions can effect scale if they're not created correctly
+                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+                } else {
+                    cgmath::Quaternion::from_axis_angle(position.clone().normalize(), cgmath::Deg(45.0))
+                };
+
+                Instance {
+                    position, rotation,
+                }
+            })
+        }).collect::<Vec<_>>();
+
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer_size = instance_data.len() * std::mem::size_of::<cgmath::Matrix4<f32>>();
+        let instance_buffer = device.create_buffer_with_data(
+            bytemuck::cast_slice(&instance_data),
+            wgpu::BufferUsage::STORAGE_READ,
+        );
+
         let uniform_buffer = device.create_buffer_with_data(
             bytemuck::cast_slice(&[uniforms]),
             wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
@@ -252,24 +280,43 @@ impl State {
 
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                bindings: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStage::VERTEX,
-                    ty: wgpu::BindingType::UniformBuffer { dynamic: false },
-                }],
+                bindings: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStage::VERTEX,
+                        ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStage::VERTEX,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        }
+                    }
+                ],
                 label: Some("uniform_bind_group_layout"),
             });
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &uniform_bind_group_layout,
-            bindings: &[wgpu::Binding {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer {
-                    buffer: &uniform_buffer,
-                    // FYI: you can share a single buffer between bindings.
-                    range: 0..std::mem::size_of_val(&uniforms) as wgpu::BufferAddress,
+            bindings: &[
+                wgpu::Binding {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &uniform_buffer,
+                        // FYI: you can share a single buffer between bindings.
+                        range: 0..std::mem::size_of_val(&uniforms) as wgpu::BufferAddress,
+                    },
                 },
-            }],
+                wgpu::Binding {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &instance_buffer,
+                        range: 0..instance_buffer_size as wgpu::BufferAddress,
+                    }
+                },
+            ],
             label: Some("uniform_bind_group"),
         });
 
@@ -335,24 +382,6 @@ impl State {
             label: Some("diffuse_bind_group"),
         });
 
-        let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|z| {
-            (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                let position = cgmath::Vector3 { x: x as f32, y: 0.0, z: z as f32 } - INSTANCE_DISPLACEMENT;
-
-                let rotation = if position.is_zero() {
-                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
-                    // as Quaternions can effect scale if they're not created correctly
-                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-                } else {
-                    cgmath::Quaternion::from_axis_angle(position.clone().normalize(), cgmath::Deg(45.0))
-                };
-
-                Instance {
-                    position, rotation,
-                }
-            })
-        }).collect();
-
         Self {
             vertices,
             instances,
@@ -395,10 +424,6 @@ impl State {
 
         self.camera_controller.update_camera(&mut self.camera);
         self.uniforms.update_view_proj(&self.camera);
-
-        for (i, instance) in self.instances.iter().enumerate() {
-            self.uniforms.model[i] = instance.to_matrix();
-        }
 
 
         // Copy operation's are performed on the gpu, so we'll need a CommandEncoder for that
